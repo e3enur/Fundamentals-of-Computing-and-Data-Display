@@ -1,13 +1,114 @@
-Version: 1.0
+---
+title: "Fundamentals of Computing and Data Display"
+subtitle: "Effect of Foreign Aid on Health Outcomes: Subnational Analysis of Indonesia"
+author: "Dilare Ecenur Irbik"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: yes
+    df_print: kable
+fontsize: 11pt 
+---
 
-RestoreWorkspace: Default
-SaveWorkspace: Default
-AlwaysSaveHistory: Default
+```{r}
+library(knitr)
+library(tidyverse)
+```
+```{r}
+library(knitr)
+library(RSocrata)
+library(tidyverse)
+```
+<style>
+body {
+text-align: justify}
+</style>
+```{r}
+#AidData
+getwd ()
+setwd("C:/Users/Ecenur/Desktop/Indonesia Term Paper")
+aid20042014 <- read.csv("aid20042014.csv", header = T, sep = ",")
+```
 
-EnableCodeIndexing: Yes
-UseSpacesForTab: Yes
-NumSpacesForTab: 2
-Encoding: UTF-8
+```{r}
+library(dplyr)
+aid20042014 <- aid20042014 %>% rename (Aid_2004=worldbank_geocodedresearchrelease_level1_v1_4_2.d89eb67.sum, Aid_2014=worldbank_geocodedresearchrelease_level1_v1_4_2.0c1866b.sum, Region=NAME_1)
 
-RnwWeave: Sweave
-LaTeX: pdfLaTeX
+subset20042014 <- subset(aid20042014, 
+            select=c(Aid_2004, Aid_2014, Region))
+```
+
+
+```{r}
+#DHS 
+getwd ()
+setwd("C:/Users/Ecenur/Desktop/Indonesia Term Paper")
+library(foreign)
+dhs2007 <- read.dta("2007.dta")
+subset2007 <- subset(dhs2007,
+          select=c(caseid,v001, v002, v007, v012, v024, v025, v106, m14, m18))
+dhs2017 <- read.dta("2017.dta")
+subset2017 <- subset(dhs2017,
+          select=c(caseid,v001, v002, v007, v012, v024, v025, v106, m14, m18))
+```
+```{r}
+#Merge datasets
+library(gtools)
+dhs_merged <- smartbind(subset2007,subset2017)
+
+
+#Rename and reorder variables
+library(dplyr)
+dhs_merged <- dhs_merged %>% rename (id=caseid, ClusterNumber=v001, HHNumber=v002, Year=v007, Age=v012, Region=v024, Residence=v025, Education=v106, Aid_Antenatal=m14, Birth_Size=m18)
+
+
+#Missing values
+library(naniar)
+dhs_merged <- replace_with_na(dhs_merged, replace = list(Aid_Antenatal = c("98","99"))) #Replace strange missing values with NA
+dhs_merged <- dhs_merged[!is.na(dhs_merged$Aid_Antenatal),] #Deleted NAs in the column
+
+dhs_merged <- replace_with_na(dhs_merged, replace = list(Birth_Size = c("98","99"))) #Replace strange missing values with NA
+dhs_merged <- dhs_merged[!is.na(dhs_merged$Birth_Size),] #Deleted NAs in the column
+
+dhs_merged$Year [dhs_merged$Year ==""] <- "2007"
+
+dhs_merged$Education [dhs_merged$Education =="no education" & dhs_merged$Year=="2017" ] <- "0"
+dhs_merged$Education [dhs_merged$Education =="primary" & dhs_merged$Year=="2017" ] <- "1"
+dhs_merged$Education [dhs_merged$Education =="secondary" & dhs_merged$Year=="2017"] <- "2"
+dhs_merged$Education [dhs_merged$Education =="higher" & dhs_merged$Year=="2017"] <- "3"
+
+
+dhs_last <- dhs_merged[apply(dhs_merged,1,function(x) {any(c("east kalimantan", "west kalimantan", "maluku", "north sulawesi") %in% x)}),]
+
+#Descriptive Analysis
+```{r}
+mean(subset2007$v012)
+mean(subset2017$v012)
+
+length(dhs_last$Aid_Antenatal[dhs_last$Aid_Antenatal >= "4" & dhs_last$Year == "2007"])
+length(dhs_last$Aid_Antenatal[dhs_last$Aid_Antenatal >= "4" & dhs_last$Year == "2017"])
+
+length(dhs_last$treated[dhs_last$treated == "1"])/3232*100
+length(dhs_last$treated[dhs_last$treated == "0"])/3232*100
+
+length(dhs_last$Aid_Antenatal[dhs_last$Aid_Antenatal >= "4" & dhs_last$Residence == "urban"])
+length(dhs_last$Aid_Antenatal[dhs_last$Aid_Antenatal >= "4" & dhs_last$Residence == "rural"])
+```
+#Statistical Analysis and Data Exploration
+```{r}
+#Difference in differences (DID)
+library(ggplot2)
+library (foreign)
+dhs_last$year <- ifelse(dhs_last$Year >= 2017, 1, 0)
+dhs_last$treated <- ifelse(dhs_last$Region == "east kalimantan" |
+                             dhs_last$Region == "west kalimantan", 1, 0)
+dhs_last$did = dhs_last$year*dhs_last$treated
+didreg = lm(Aid_Antenatal >= "4" ~ treated + year + did, data = dhs_last)
+summary(didreg)
+```
+```{r}
+ggplot(dhs_last, aes(dhs_last$year, Aid_Antenatal, color = dhs_last$treated)) +
+  geom_jitter() +
+  theme_minimal()
+```
+
